@@ -3,8 +3,10 @@ const cors = require('cors')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express()
 const port = process.env.PORT || 3000
+const multer = require('multer');
 
 require('dotenv').config();
+const upload = multer({ storage: multer.memoryStorage() });
 
 app.use(cors())
 app.use(express.json())
@@ -47,32 +49,88 @@ async function run() {
 
     // users API
     app.post('/users', async (req, res) => {
-      const newUser = req.body;
-      // const email = req.body.email;
-      // const quary = { email: email }
-      // const existingUser = await usersCollection.findOne(quary);
-      // if (existingUser) {
-      // res.send('Already have user.')
-      // }
-      // else {
-      const result = await usersCollection.insertOne(newUser);
-      res.send(result);
-      // }
-    })
+      try {
+        const newUser = req.body;
+
+        if (!newUser.email) {
+          return res.status(400).send({ message: 'Email is required' });
+        }
+
+        const existingUser = await usersCollection.findOne({ email: newUser.email });
+        if (existingUser) {
+          return res.status(409).send({ message: 'User already exists' });
+        }
+
+        const userToSave = {
+          name: newUser.name || "",
+          email: newUser.email,
+          photoURL: newUser.photoURL || "",
+          uid: newUser.uid || "",
+
+          status: "active",
+          role: "user",
+
+          createdAt: new Date()
+        };
+
+        const result = await usersCollection.insertOne(userToSave);
+        res.status(201).send(result);
+
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: 'Failed to create user' });
+      }
+    });
+
 
     app.get('/users', async (req, res) => {
       const cursor = usersCollection.find();
       const result = await cursor.toArray();
       res.send(result);
-    })
+    });
+
+    app.get('/users/:id', async (req, res) => {
+      const id = req.params.id;
+
+      const result = await usersCollection.findOne({
+        _id: new ObjectId(id)
+      });
+
+      res.send(result);
+    });
+
+
+    // update user role
+    app.patch("/users/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { role, status } = req.body;
+
+        const updateDoc = {};
+
+        if (role) updateDoc.role = role;
+        if (status) updateDoc.status = status;
+
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateDoc }
+        );
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Update failed" });
+      }
+    });
+
 
 
     // meals API
     app.post('/meals', async (req, res) => {
-      const newMeal = req.body;
-      const result = await allMeals.insertOne(newMeal);
+      const meal = req.body;
+      const result = await allMeals.insertOne(meal);
       res.send(result);
-    })
+    });
+
 
     app.get('/meals', async (req, res) => {
       const cursor = allMeals.find();
@@ -93,6 +151,21 @@ async function run() {
         res.status(500).send({ error: "Server error" });
       }
     });
+
+    // get meals by chef
+    app.get("/my-meals", async (req, res) => {
+      const email = req.query.email;
+      const meals = await allMeals.find({ userEmail: email }).toArray();
+      res.send(meals);
+    });
+
+    // delete meal by chef
+    app.delete("/meals/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await allMeals.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
+
 
     // reviews api
     app.post('/reviews', async (req, res) => {
@@ -164,6 +237,26 @@ async function run() {
         res.status(500).send({ message: "Error fetching user orders" });
       }
     });
+
+    // get orders for specific chef
+    app.get("/chef-orders/:chefId", async (req, res) => {
+      const chefId = req.params.chefId;
+      const orders = await orderCollection.find({ chefId }).toArray();
+      res.send(orders);
+    });
+
+    // update order status
+    app.patch("/orders/:id", async (req, res) => {
+      const id = req.params.id;
+      const { status } = req.body;
+
+      const result = await orderCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status } }
+      );
+      res.send(result);
+    });
+
 
     // Favorites API
     app.post("/favorites", async (req, res) => {
