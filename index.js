@@ -37,7 +37,7 @@ app.post('/data', (req, res) => {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const LocalChefBazaarDB = client.db('LocalChefBazaarDB');
     const usersCollection = LocalChefBazaarDB.collection('users');
@@ -45,6 +45,7 @@ async function run() {
     const reviewsCollection = LocalChefBazaarDB.collection('reviews');
     const orderCollection = LocalChefBazaarDB.collection('orders');
     const favoriteCollection = LocalChefBazaarDB.collection('favorites');
+    const requestsCollection = LocalChefBazaarDB.collection('requests');
 
 
     // users API
@@ -293,8 +294,112 @@ async function run() {
       }
     });
 
+    // requests API
+    app.post("/requests", async (req, res) => {
+      const request = req.body;
+      try {
+        const result = await requestsCollection.insertOne({
+          ...request,
+          requestStatus: "pending",
+          requestTime: new Date()
+        });
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to submit request" });
+      }
+    });
+
+    // Get all requests
+    app.get("/requests", async (req, res) => {
+      const cursor = requestsCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    // Get all requests by email
+    app.get("/requests/:email", async (req, res) => {
+      const email = req.params.email;
+      const request = await requestsCollection.findOne({
+        email,
+        requestStatus: "pending"
+      });
+      res.send(request);
+    });
+
+    // update request status(accept request)
+    app.patch("/requests/:id", async (req, res) => {
+      const { id } = req.params;
+
+      try {
+        // 1️⃣ find request
+        const request = await requestsCollection.findOne({
+          _id: new ObjectId(id)
+        });
+
+        if (!request) {
+          return res.status(404).send({ message: "Request not found" });
+        }
+
+        if (request.requestStatus !== "pending") {
+          return res.status(400).send({
+            message: "Request already processed"
+          });
+        }
+
+        // 2️⃣ update user role based on requestType
+        const userUpdateResult = await usersCollection.updateOne(
+          { email: request.email },
+          {
+            $set: {
+              role: request.requestType // chef OR admin
+            }
+          }
+        );
+
+        // 3️⃣ update request status
+        const requestUpdateResult = await requestsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              requestStatus: "approved"
+            }
+          }
+        );
+
+        res.send({
+          message: "Request approved & user role updated",
+          userUpdateResult,
+          requestUpdateResult
+        });
+
+      } catch (error) {
+        res.status(500).send({
+          message: "Approval failed"
+        });
+      }
+    });
+
+    // Decline request
+    app.patch("/requests/reject/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    await requestsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { requestStatus: "rejected" } }
+    );
+    res.send({ message: "Request rejected" });
+  } catch (err) {
+    res.status(500).send({ message: "Rejection failed" });
+  }
+});
+
+
+
+
+
+
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
   }
